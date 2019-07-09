@@ -1,0 +1,8 @@
+numpy
+matplotlib
+keras
+tensorflow-gpu==1.12.0
+pandas  
+opencv-python==3.4.5.20  
+opencv-contrib-python==3.4.5.20    
+Pillow==2.2.1  
