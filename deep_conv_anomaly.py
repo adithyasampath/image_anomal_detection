@@ -17,6 +17,8 @@ from tensorflow.contrib import lite
 from skimage.measure import compare_ssim
 import imutils
 from skimage.measure import compare_ssim
+import time
+
 
 
 class AnomalyPredictor:
@@ -36,6 +38,8 @@ class AnomalyPredictor:
         self.nb_epoch = 50
         self.weights_dir = os.path.join(
             os.path.dirname(__file__), "weights", "autoencoder-vgg.h5")
+        self.tf_weights_dir = os.path.join(
+            os.path.dirname(__file__), "weights","1")
         self.initial_image_dir = os.path.dirname(__file__)
         self.initial_image_dir = os.path.join(self.initial_image_dir, "data")
         self.median_file = os.path.join(self.initial_image_dir, 'median.csv')
@@ -148,6 +152,71 @@ class AnomalyPredictor:
             self.save_image(self.test_save_to,"thresh_" + filename,thresh)
         print('_mse: {}'.format(_mse))
         return _mse < self.threshold
+
+
+    def anomaly_image_diff(self,imageA, imageB,width,heigth):
+        grayA = cv2.cvtColor(imageA, cv2.COLOR_BGR2GRAY)
+        grayB = cv2.cvtColor(imageB, cv2.COLOR_BGR2GRAY)
+        (score, diff) = compare_ssim(grayA, grayB, full=True)
+        diff = (diff * 255).astype("uint8")
+        # print("SIMILARITY score: {}".format(score))
+        thresh = cv2.threshold(diff, 0, 255,
+	    cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+        contours = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL,
+	    cv2.CHAIN_APPROX_SIMPLE)
+        contours = imutils.grab_contours(contours)
+        cv2.drawContours(imageB, contours,-1, (0, 255, 0), 2)
+        max_contour = max(contours, key = cv2.contourArea)
+        rect = cv2.minAreaRect(max_contour)
+        box = cv2.boxPoints(rect)
+        box = np.int0(box)
+        im = cv2.drawContours(imageA,[box],0,(0,0,255),2)
+        im_ = cv2.drawContours(imageB,[box],0,(0,0,255),2)
+        imageA = cv2.resize(imageA, (width,heigth), interpolation = cv2.INTER_AREA)
+        imageB = cv2.resize(imageB, (width,heigth), interpolation = cv2.INTER_AREA)
+        thresh = cv2.resize(thresh, (width,heigth), interpolation = cv2.INTER_AREA)
+        diff = cv2.resize(diff, (width,heigth), interpolation = cv2.INTER_AREA)
+        return imageA,imageB,diff,thresh
+
+
+    def anomaly_function(self, filepath,filename, width,height):
+        image = cv2.resize(
+            cv2.imread(filepath), (self.img_dim, self.img_dim))
+        image = image * 1. / 255
+        # validation_image = np.expand_dims(im,axis=0)
+        validation_image = np.zeros((1, self.img_dim, self.img_dim, 3))
+        validation_image[0, :, :, :] = image
+        predicted_image = self.autoencoder.predict(validation_image)
+        grayA = cv2.cvtColor(predicted_image[0].astype(np.float32)* 255.0, cv2.COLOR_BGR2GRAY)
+        grayB = cv2.cvtColor(validation_image[0].astype(np.float32)* 255.0, cv2.COLOR_BGR2GRAY)
+        (_mse, diff) = compare_ssim(grayA, grayB, full=True) #self.mse(predicted_image[0], validation_image[0])
+        print('_mse: {}'.format(_mse))
+        print("Is %s an anomaly: " % filename.split("_")[1],_mse < self.threshold)
+        if (_mse < self.threshold):
+            original, anomaly, diff, thresh = self.anomaly_image_diff(validation_image[0].astype(np.float32)* 255.0,predicted_image[0].astype(np.float32)* 255.0,width,height)
+            self.save_image(self.test_save_to,"anomaly_" + filename,original)
+            self.save_image(self.test_save_to,"predicted_" + filename,anomaly)
+            self.save_image(self.test_save_to,"diff_" + filename,diff)
+            self.save_image(self.test_save_to,"thresh_" + filename,thresh)
+            return original
+        else:
+            return None
+            
+        
+
+    def create_tf_serving_model(self):
+        tf.keras.backend.set_learning_phase(0)
+        self.autoencoder.load_weights(self.weights_dir)
+        print("Started conversion")
+        start = time.time()
+        with tf.keras.backend.get_session() as sess:
+            tf.initialize_all_variables().run()
+            tf.saved_model.simple_save(
+                sess,
+                self.tf_weights_dir,
+                inputs={'input_image': self.autoencoder.input},
+                outputs={t.name:t for t in self.autoencoder.outputs})
+            print("Converted in: ",time.time()-start)
 
     def create_model(self):
         inputs = Input((self.img_dim, self.img_dim, 3))

@@ -1,5 +1,5 @@
 import keras
-
+import datetime
 # import keras_retinanet
 from keras_retinanet.models.resnet import ResNetBackbone
 from keras_retinanet import models
@@ -13,6 +13,8 @@ import cv2
 import os
 import numpy as np
 import time
+# import anomaly detection module
+from deep_conv_anomaly import AnomalyPredictor
 
 # set tf backend to allow memory to grow, instead of claiming everything
 import tensorflow as tf
@@ -52,9 +54,14 @@ model.compile(
     optimizer=keras.optimizers.adam(lr=1e-5, clipnorm=0.001))
 
 model = models.convert_model(model)
-print("Model Loaded and compiled")
+print("Detection Model Loaded and compiled")
 #print(model.summary())
+anomaly = AnomalyPredictor()
+anomaly.create_model()
+anomaly.load_weights()
+anomaly.get_threshold()
 
+print("Anomaly detection model loaded and compiled")
 # load label to names mapping for visualization purposes
 labels_to_names = {
     0: 'person',
@@ -142,9 +149,10 @@ labels_to_names = {
 
 initial_image_dir = os.path.dirname(__file__)
 initial_image_dir = os.path.join(initial_image_dir, "data")
-path = os.path.join(initial_image_dir, "inputs")
-crop_save_path = os.path.join(initial_image_dir, 'train','cogs')
+path = os.path.join(initial_image_dir, "test","cogs")
+crop_save_path_train = os.path.join(initial_image_dir, 'train','cogs')
 crop_save_path_valid = os.path.join(initial_image_dir, 'valid','cogs')
+crop_save_path_test = os.path.join(initial_image_dir, "crop")
 det_save_path = os.path.join(initial_image_dir, "detections")
 
 for file in os.listdir(path):
@@ -175,16 +183,24 @@ for file in os.listdir(path):
         b = box.astype(int)
         if labels_to_names[label] == "gear":
             crop = draw[b[1]:b[3],b[0]:b[2]].copy()
-            crop = cv2.resize(crop, (1050,1050), interpolation = cv2.INTER_AREA)
+            crop_file = "cropped_"+file
+            filepath = os.path.join(crop_save_path_test,crop_file)
+            cv2.imwrite(filepath, crop)
+            shape = crop.shape[:-1]
+            height,width = shape[0],shape[1]
+            crop = cv2.resize(crop, (256,256))
+            crop = anomaly.anomaly_function(filepath,crop_file,height,width)
+            if crop is not None:
+                draw[b[0]:b[2],b[1]:b[3]] = crop
             draw_box(draw, b, color=color)
             caption = "{} {:.3f}".format(labels_to_names[label], score)
             draw_caption(draw, b, caption)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            cv2.putText(draw, 'Anomaly at {}'.format(datetime.datetime.now()), (10, 50), font, 1, (255, 0, 0), 1,
+                        cv2.LINE_AA)
             detection_file = "processed_"+file
-            crop_file = "cropped_"+file
+            
             cv2.imwrite(os.path.join(det_save_path,detection_file), draw)
-            cv2.imwrite(os.path.join(crop_save_path,crop_file), crop)
-            cv2.imwrite(os.path.join(crop_save_path_valid,crop_file), crop)
-#plt.figure(figsize=(15, 15))
-#plt.axis('off')
-#plt.imshow(draw)
-#plt.show()
+            # cv2.imwrite(os.path.join(crop_save_path_train,crop_file), crop)
+            # cv2.imwrite(os.path.join(crop_save_path_valid,crop_file), crop)
+
