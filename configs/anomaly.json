@@ -1,0 +1,12 @@
+model_config_list {
+ config {
+    name: "anomaly",
+    base_path: "/weights",
+	  model_version_policy: {
+        specific: { 
+            versions:[1] 
+       }
+    },
+    model_platform:"tensorflow",
+  }
+}

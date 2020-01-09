@@ -1,0 +1,14 @@
+model_config_list {
+ config {
+    name: "retinanet",
+    base_path: "/weights",
+	  model_version_policy: {
+        specific: { 
+            versions: [
+          2
+        ]
+      }
+    },
+    model_platform: "tensorflow",
+  }
+}
