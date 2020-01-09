@@ -17,7 +17,8 @@ from tensorflow.contrib import lite
 from skimage.measure import compare_ssim
 import imutils
 import time
-import losses
+import ssim_loss
+from keras import losses
 
 class AnomalyPredictor:
     def __init__(self):
@@ -201,9 +202,9 @@ class AnomalyPredictor:
         # conv9 = BatchNormalization()(conv9)
         conv10 = Conv2D(3, (3, 3), activation='sigmoid', padding='same')(conv9)
         self.autoencoder = Model(inputs=[inputs], outputs=[conv10])
-        for layer in self.autoencoder.layers[:19]:
-           layer.trainable = False
-        #self.autoencoder.summary()
+        # for layer in self.autoencoder.layers[:19]:
+        #    layer.trainable = False
+        self.autoencoder.summary()
 
     def train_model(self):
         callbacks = []
@@ -230,7 +231,7 @@ class AnomalyPredictor:
                 cooldown=0,
                 min_lr=0))
 
-        self.autoencoder.compile(optimizer='adam', loss='binary_crossentropy')
+        self.autoencoder.compile(optimizer='adam', loss=keras_MS_SSIM)
         self.autoencoder.fit_generator(
             self.fixed_generator(self.train_generator),
             steps_per_epoch=self.nb_train_samples // self.batch_size,
